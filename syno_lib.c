@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #define NUM_SESSIONS 10
 #define SID_SIZE 20
@@ -28,8 +29,9 @@ Config config_arr[NUM_SESSIONS];
 Config* get_config(char* session)
 {
     Config *config = config_arr;
+    bool found = false;
 
-    if (strncmp(config->session, "\0", sizeof(config->session)) == 0)
+    if (strlen(config->session) == 0)
     {
         return config;
     }
@@ -37,10 +39,15 @@ Config* get_config(char* session)
     for (int i = 0; i < NUM_SESSIONS; i++)
     {
         if (strcmp(config->session, session) == 0) {
+            found = true;
             break;
         }
         config++;
     }
+    if (!found) {
+        return NULL;
+    }
+
     return config;
 }
 
@@ -92,7 +99,7 @@ static size_t callback(void* in, size_t size, size_t num, char* out)
     struct Buffer *bufS_p = (struct Buffer *)out;
     char *mem_ptr = realloc(bufS_p->data, bufS_p->size + totalBytes + 1);
     if(NULL == mem_ptr) {
-        printf("not enough memory (realloc returned NULL)\n");
+        printf("\nNot enough memory (realloc returned NULL)");
         return 0;
     }
     bufS_p->data = mem_ptr;
@@ -126,8 +133,8 @@ int send_request(const char *url, char *rsp)
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &res);
     curl_easy_cleanup(curl);
 
-    if (res != CURLE_OK)
-        printf("Request %s failed with error code: %d", url, res);
+    if (CURLE_OK != res )
+        printf("\nRequest %s failed with error code: %d", url, res);
 
 
     printf("%s", bufS.data);
@@ -140,12 +147,14 @@ int send_request(const char *url, char *rsp)
     return res;
 }
 
-void login(char* session)
+void* login(char* session)
 {
-
     char url[50];
     set_config(session);
     Config* config = get_config(session);
+
+    if (NULL == config)
+        return NULL;
 
     strcpy(url, config->server_url);
     strcat(url, "/webapi/auth.cgi?api=SYNO.API.Auth&version=6&method=login&account=");
@@ -157,14 +166,17 @@ void login(char* session)
     strcat(url, "&format=sid");
     strtok(url, "\n");
 
-    char* rsp = config->sid;
+    char* rsp = malloc(sizeof(char) * SID_SIZE);
     send_request(url, rsp);
+    strcpy(config->sid,"SID_NO"); // TODO extract sid from respone
 }
 
-void logoff(char* session)
+void* logoff(char* session)
 {
     char url[50];
     Config* config = get_config(session);
+    if (NULL == config)
+        return NULL;
 
     strcpy(url, config->server_url);
     strcat(url, "/webapi/auth.cgi?api=SYNO.API.Auth&version=1&method=logout&session=");
@@ -179,18 +191,24 @@ int request(char* session, char* url, char* rsp)
 {
     Config* config = get_config(session);
 
-    if (strlen(config->sid) == 0)
+    if (0 == strlen(config->sid))
     {
-        return 1;
+        return RES_FAIL;
     }
 
-    return send_request(url, &rsp);
+    return send_request(url, rsp);
 }
 
 int make(char* session, char* url, char* rsp)
 {
     login(session);
-    int res = request(session, url, &rsp);
+
+    int res = request(session, url, rsp);
+    if (RES_OK != res) {
+        printf("\nERRMSG: Something went wrong with the request, double check your configuration.\n");
+        return res;
+    }
+
     logoff(session);
     return res;
 }
