@@ -20,7 +20,7 @@ GET <url>:<port>/webapi/auth.cgi?api=SYNO.API.Auth&version=6&method=login&accoun
 GET <url>:<port>/webapi/auth.cgi?api=SYNO.API.Auth&version=1&method=logout&session=FileStation
 
 ### Get FS INFO
-GET http://192.168.0.107:5000/webapi/entry.cgi?api=SYNO.FileStation.Info&version=2&method=get&_sid=4fVCUvCwe1KVY1660NEN539702
+GET <url>:<port>/webapi/entry.cgi?api=SYNO.FileStation.Info&version=2&method=get&_sid=4fVCUvCwe1KVY1660NEN539702
 
 ### Get VS INFO
 GET <url>:<port>/webapi/entry.cgi?api=SYNO.VideoStation2.Info&version=2&method=get&_sid=m9rr8Pc8A0tbs1660NEN539702
