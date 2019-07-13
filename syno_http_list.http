@@ -1,0 +1,30 @@
+# For a quick start check out our HTTP Requests collection (Tools|HTTP Client|Open HTTP Requests Collection).
+#
+# Following HTTP Request Live Templates are available:
+# * 'gtrp' and 'gtr' create a GET request with or without query parameters;
+# * 'ptr' and 'ptrp' create a POST request with a simple or parameter-like body;
+# * 'mptr' and 'fptr' create a POST request to submit a form with a text or file field (multipart/form-data);
+
+### Replace <url>, <port>, <username> and <password>
+### SID (session id) is a handler received when you log in and is required in all your requests.
+
+### EXAMPLES
+
+### Get API info
+GET <url>:<port>/webapi/query.cgi?api=SYNO.API.Info&version=1&method=query&query=all
+
+### Login FileStation
+GET <url>:<port>/webapi/auth.cgi?api=SYNO.API.Auth&version=6&method=login&account=<username>&passwd=<password>&session=FileStation&format=sid
+
+### Logout FileStation
+GET <url>:<port>/webapi/auth.cgi?api=SYNO.API.Auth&version=1&method=logout&session=FileStation
+
+### Get FS INFO
+GET http://192.168.0.107:5000/webapi/entry.cgi?api=SYNO.FileStation.Info&version=2&method=get&_sid=4fVCUvCwe1KVY1660NEN539702
+
+### Get VS INFO
+GET <url>:<port>/webapi/entry.cgi?api=SYNO.VideoStation2.Info&version=2&method=get&_sid=m9rr8Pc8A0tbs1660NEN539702
+
+### List VS Movie
+GET <url:<port>/webapi/entry.cgi?api=SYNO.VideoStation2.Movie&version=1&method=list&limit=1&offset=10&library_id=0&_sid=m9rr8Pc8A0tbs1660NEN539702
+

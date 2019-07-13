@@ -2,7 +2,8 @@
 #define SYNO_COM_LIBRARY_H
 
 
-void make(char* session, char* url);
+void init(char* abspath_conf_file);
+int make(char* session, char* url, char* rsp);
 
 
 #endif //SYNO_COM_LIBRARY_H
