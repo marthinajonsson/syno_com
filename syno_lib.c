@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <errno.h>
 
 #define NUM_SESSIONS 10
 #define SID_SIZE 20
@@ -31,14 +32,14 @@ Config* get_config(char* session)
     Config *config = config_arr;
     bool found = false;
 
-    if (strlen(config->session) == 0)
+    if (0 == strlen(config->session))
     {
         return config;
     }
 
     for (int i = 0; i < NUM_SESSIONS; i++)
     {
-        if (strcmp(config->session, session) == 0) {
+        if (0 == strcmp(config->session, session)) {
             found = true;
             break;
         }
@@ -74,16 +75,16 @@ void init(char* abspath_conf_file)
     fclose(fp);
 
     char* ch_p = strtok(buffer, delim);
-    while(ch_p != NULL)
+    while (NULL != ch_p)
     {
         printf("'%s'\n", ch_p);
         ch_p = strtok(NULL, delim);
     }
-
+#ifdef DEBUG
     printf("%s\n", ch_p[1]);
     printf("%s\n", ch_p[3]);
     printf("%s\n", ch_p[5]);
-
+#endif
     memset(config_arr, 0, NUM_SESSIONS * (sizeof config_arr[0]) );
     for (int i = 0; i < NUM_SESSIONS; i++) {
         config_arr[i];
@@ -99,7 +100,7 @@ static size_t callback(void* in, size_t size, size_t num, char* out)
     struct Buffer *bufS_p = (struct Buffer *)out;
     char *mem_ptr = realloc(bufS_p->data, bufS_p->size + totalBytes + 1);
     if(NULL == mem_ptr) {
-        printf("\nNot enough memory (realloc returned NULL)");
+        fprintf(stderr, "\nNot enough memory, %s\n", strerror(errno));
         return 0;
     }
     bufS_p->data = mem_ptr;
@@ -133,11 +134,12 @@ int send_request(const char *url, char *rsp)
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &res);
     curl_easy_cleanup(curl);
 
-    if (CURLE_OK != res )
-        printf("\nRequest %s failed with error code: %d", url, res);
+    if (CURLE_OK != res)
+        fprintf(stderr, "\nRequest %s failed with error code: %d", url, res);
 
-
+#ifdef DEBUG
     printf("%s", bufS.data);
+#endif
 
     if (NULL != rsp)
         strncpy(rsp, bufS.data, sizeof(&rsp));
@@ -167,8 +169,19 @@ void* login(char* session)
     strtok(url, "\n");
 
     char* rsp = malloc(sizeof(char) * SID_SIZE);
+
     send_request(url, rsp);
-    strcpy(config->sid,"SID_NO"); // TODO extract sid from respone
+#ifdef DEBUG
+    rsp = "sid: abc123zxy987__";
+#endif
+
+    char* sid = strstr(rsp, "sid");
+    if (NULL != sid) {
+        sid = strtok(sid, ": ");
+        sid = strtok(NULL, " ");
+        strcpy(config->sid, sid);
+    }
+    free(rsp);
 }
 
 void* logoff(char* session)
@@ -193,9 +206,9 @@ int request(char* session, char* url, char* rsp)
 
     if (0 == strlen(config->sid))
     {
-        return RES_FAIL;
+        return EXIT_FAILURE;
     }
-
+    strcat(url, config->sid);
     return send_request(url, rsp);
 }
 
@@ -204,8 +217,8 @@ int make(char* session, char* url, char* rsp)
     login(session);
 
     int res = request(session, url, rsp);
-    if (RES_OK != res) {
-        printf("\nERRMSG: Something went wrong with the request, double check your configuration.\n");
+    if (EXIT_FAILURE != res) {
+        fprintf(stderr, "\nRequest failed: %s\n", strerror(errno));
         return res;
     }
 
