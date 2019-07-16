@@ -87,10 +87,13 @@ void init(char* abspath_conf_file)
 #endif
     memset(config_arr, 0, NUM_SESSIONS * (sizeof config_arr[0]) );
     for (int i = 0; i < NUM_SESSIONS; i++) {
-        config_arr[i];
         strncpy(config_arr[i].username,ch_p[1], sizeof(config_arr[i].username));
         strncpy(config_arr[i].password,ch_p[3], sizeof(config_arr[i].password));
         strncpy(config_arr[i].server_url,ch_p[5], sizeof(config_arr[i].server_url));
+    }
+
+    for (int i = 0; i < NUM_SESSIONS; i++) {
+        printf("%s \n", config_arr[i].username);
     }
 }
 
