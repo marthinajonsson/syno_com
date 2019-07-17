@@ -25,76 +25,104 @@ struct Buffer {
     size_t size;
 };
 
-Config config_arr[NUM_SESSIONS];
+static Config config_arr[NUM_SESSIONS];
 
-Config* get_config(char* session)
+Config* get_config(char* session, int *error_code)
 {
     Config *config = config_arr;
     bool found = false;
 
-    if (0 == strlen(config->session))
+    if ((0 == strlen(config->session) || 0 != strlen(config->username)) && 0 != strcmp(config->session, "new"))
     {
+        *error_code = 0;
         return config;
     }
 
     for (int i = 0; i < NUM_SESSIONS; i++)
     {
-        if (0 == strcmp(config->session, session)) {
+        if (0 == strcmp(config->session, session) ||
+                ((0 == strlen(config->username) && 0 == strcmp(session, "new")) )) {
             found = true;
+            *error_code = 0;
             break;
         }
         config++;
     }
     if (!found) {
+        *error_code = -1;
         return NULL;
     }
 
     return config;
 }
 
-void set_config(char* session)
+void set_config(char* session, int *error_code)
 {
     Config *config = config_arr;
-
+    *error_code = -1;
     for (int i = 0; i < NUM_SESSIONS; i++)
     {
-        if (strlen(config->session) == 0) {
+        if (0 == strlen(config->session) && 0 != strlen(config->username)) {
             strncpy(config->session, session, sizeof(config->session));
+            *error_code = 0;
+            break;
         }
         config++;
     }
 }
 
-void init(char* abspath_conf_file)
+int init(char* abspath_conf_file, const char* delim)
 {
     char buffer[1024];
-    char delim[] = "|";
-    FILE *fp;
-    fp = fopen(abspath_conf_file,"r");
-    fread(buffer, 1024, 1, fp);
-    fclose(fp);
+    FILE *file_p;
+    file_p = fopen(abspath_conf_file,"r");
+    if (NULL == file_p) {
+        fprintf(stderr, "\nFailed to parse configuration file: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
-    char* ch_p = strtok(buffer, delim);
-    while (NULL != ch_p)
+    fread(buffer, 1024, 1, file_p);
+    fclose(file_p);
+
+    static char *save_p;
+    char* next_p = malloc(MAX_URL_SIZE * sizeof(char));
+    if (NULL == next_p) {
+        fprintf(stderr, "\nCould not allocate enough memory to parse the configuration file: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
+
+    next_p = strtok_r(buffer, delim, &save_p);
+    char* prev_p = NULL;
+
+    int err;
+    Config* config = get_config("new", &err);
+    if (0 != err) {
+        fprintf(stderr, "\nNumber of sessions exceeded: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
+
+    while (NULL != next_p)
     {
-        printf("'%s'\n", ch_p);
-        ch_p = strtok(NULL, delim);
-    }
-#ifdef DEBUG
-    printf("%s\n", ch_p[1]);
-    printf("%s\n", ch_p[3]);
-    printf("%s\n", ch_p[5]);
-#endif
-    memset(config_arr, 0, NUM_SESSIONS * (sizeof config_arr[0]) );
-    for (int i = 0; i < NUM_SESSIONS; i++) {
-        strncpy(config_arr[i].username,ch_p[1], sizeof(config_arr[i].username));
-        strncpy(config_arr[i].password,ch_p[3], sizeof(config_arr[i].password));
-        strncpy(config_arr[i].server_url,ch_p[5], sizeof(config_arr[i].server_url));
-    }
+        prev_p = next_p;
+        next_p = strtok_r(NULL, delim, &save_p);
 
-    for (int i = 0; i < NUM_SESSIONS; i++) {
-        printf("%s \n", config_arr[i].username);
+        if (0 == strcasecmp(prev_p, "username"))
+            strncpy(config->username, next_p, sizeof(config->username));
+
+        else if (0 == strcasecmp(prev_p, "password"))
+            strncpy(config->password, next_p, sizeof(config->password));
+
+        else if (0 == strcasecmp(prev_p, "server"))
+            strncpy(config->server_url, next_p, sizeof(config->server_url));
     }
+    free(next_p);
+
+    printf("Loaded configuration:\n");
+    fprintf(stdout,"%s \t", config->username);
+    fprintf(stdout, "%s \t", config->password);
+    fprintf(stdout, "%s \t", config->server_url);
+
+    return EXIT_SUCCESS;
 }
 
 static size_t callback(void* in, size_t size, size_t num, char* out)
@@ -152,63 +180,74 @@ int send_request(const char *url, char *rsp)
     return res;
 }
 
-void* login(char* session)
+void login(char* session)
 {
-    char url[50];
-    set_config(session);
-    Config* config = get_config(session);
+    int err;
+    char url[300];
+    set_config(session, &err);
 
-    if (NULL == config)
-        return NULL;
-
-    strcpy(url, config->server_url);
-    strcat(url, "/webapi/auth.cgi?api=SYNO.API.Auth&version=6&method=login&account=");
-    strcat(url, config->username);
-    strcat(url, "&passwd=");
-    strcat(url, config->password);
-    strcat(url, "&session=");
-    strcat(url, config->session);
-    strcat(url, "&format=sid");
-    strtok(url, "\n");
-
-    char* rsp = malloc(sizeof(char) * SID_SIZE);
-
-    send_request(url, rsp);
-#ifdef DEBUG
-    rsp = "sid: abc123zxy987__";
-#endif
-
-    char* sid = strstr(rsp, "sid");
-    if (NULL != sid) {
-        sid = strtok(sid, ": ");
-        sid = strtok(NULL, " ");
-        strcpy(config->sid, sid);
+    if (0 != err) {
+        fprintf(stderr, "\nNumber of sessions exceeded: %d\n", err);
+        exit(err);
     }
-    free(rsp);
+
+    Config* config = get_config(session, &err);
+
+    if (NULL != config)
+    {
+        strcpy(url, config->server_url);
+        strcat(url, "/webapi/auth.cgi?api=SYNO.API.Auth&version=6&method=login&account=");
+        strcat(url, config->username);
+        strcat(url, "&passwd=");
+        strcat(url, config->password);
+        strcat(url, "&session=");
+        strcat(url, config->session);
+        strcat(url, "&format=sid");
+        strtok(url, "\n");
+
+        char* rsp = malloc(sizeof(char) * SID_SIZE);
+        send_request(url, rsp);
+
+#ifdef DEBUG
+        rsp = "sid: abc123zxy987__";
+#endif
+        char* sid = strstr(rsp, "sid");
+        static char* save_p;
+        if (NULL != sid) {
+            sid = strtok_r(sid, ": ", &save_p);
+            sid = strtok_r(NULL, " ", &save_p);
+            strncpy(config->sid, sid, sizeof(config->sid));
+        }
+        free(rsp);
+    }
 }
 
-void* logoff(char* session)
+void logoff(char* session)
 {
+    int err;
     char url[50];
-    Config* config = get_config(session);
-    if (NULL == config)
-        return NULL;
-
-    strcpy(url, config->server_url);
-    strcat(url, "/webapi/auth.cgi?api=SYNO.API.Auth&version=1&method=logout&session=");
-    strcat(url, config->session);
-    strtok(url, "\n");
-    send_request(url, NULL);
+    Config* config = get_config(session, &err);
+    if (0 == err) {
+        strcpy(url, config->server_url);
+        strcat(url, "/webapi/auth.cgi?api=SYNO.API.Auth&version=1&method=logout&session=");
+        strcat(url, config->session);
+        strtok(url, "\n");
+        send_request(url, NULL);
+    }
     memset(config->sid, 0, sizeof config->sid);
     memset(config->session, 0, sizeof config->session);
 }
 
+void clear_all_conf() {
+    memset(config_arr, 0, sizeof config_arr);
+}
+
 int request(char* session, char* url, char* rsp)
 {
-    Config* config = get_config(session);
-
-    if (0 == strlen(config->sid))
-    {
+    int err;
+    Config* config = get_config(session, &err);
+    if (0 != err || 0 == strlen(config->sid)) {
+        fprintf(stderr, "\nSession lost: %d\n", err);
         return EXIT_FAILURE;
     }
     strcat(url, config->sid);
@@ -227,4 +266,18 @@ int make(char* session, char* url, char* rsp)
 
     logoff(session);
     return res;
+}
+
+int test_connection(char* session) {
+    int err;
+    login(session);
+    Config* config = get_config(session, &err);
+    fprintf(stdout, "%s\t", config->username);
+    fprintf(stdout, "%s\n", config->session);
+
+    logoff(session);
+    config = get_config(session, &err);
+    fprintf(stdout, "%s\t", config->username);
+    fprintf(stdout, "%s\n", config->session);
+    return err;
 }

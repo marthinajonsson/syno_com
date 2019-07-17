@@ -4,7 +4,7 @@ project(syno_com C)
 find_package(OpenSSL)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_FLAGS "-Wall -Wpedantic") # -Werror
+set(CMAKE_C_FLAGS "-Wall -Werror -Wpedantic")
 
 include_directories(src)
 add_subdirectory(test)
