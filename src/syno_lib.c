@@ -8,9 +8,10 @@
 #include <errno.h>
 
 #define NUM_SESSIONS 10
-#define SID_SIZE 20
-#define LOGIN_SIZE 10
-#define MAX_URL_SIZE 50
+#define SID_SIZE 30
+#define LOGIN_SIZE 20
+#define MAX_URL_SIZE 300
+#define RSP_SIZE 1024
 
 typedef struct ConfigurationInfo {
     char username[LOGIN_SIZE];
@@ -27,21 +28,37 @@ struct Buffer {
 
 static Config config_arr[NUM_SESSIONS];
 
+Config* get_new_config(int *error_code)
+{
+    Config *config = config_arr;
+    bool found = false;
+
+    for (int i = 0; i < NUM_SESSIONS; i++)
+    {
+        if (0 == strlen(config->username)) {
+            found = true;
+            *error_code = 0;
+            break;
+        }
+        config++;
+    }
+
+    if (!found) {
+        *error_code = -1;
+        return NULL;
+    }
+
+    return config;
+}
+
 Config* get_config(char* session, int *error_code)
 {
     Config *config = config_arr;
     bool found = false;
 
-    if ((0 == strlen(config->session) || 0 != strlen(config->username)) && 0 != strcmp(config->session, "new"))
-    {
-        *error_code = 0;
-        return config;
-    }
-
     for (int i = 0; i < NUM_SESSIONS; i++)
     {
-        if (0 == strcmp(config->session, session) ||
-                ((0 == strlen(config->username) && 0 == strcmp(session, "new")) )) {
+        if (0 == strcmp(config->session, session)) {
             found = true;
             *error_code = 0;
             break;
@@ -81,10 +98,10 @@ int init(char* abspath_conf_file, const char* delim)
         return EXIT_FAILURE;
     }
 
-    fread(buffer, 1024, 1, file_p);
+    fread(buffer, 512, 1, file_p);
     fclose(file_p);
 
-    static char *save_p;
+    char *save_p;
     char* next_p = malloc(MAX_URL_SIZE * sizeof(char));
     if (NULL == next_p) {
         fprintf(stderr, "\nCould not allocate enough memory to parse the configuration file: %s\n", strerror(errno));
@@ -95,8 +112,9 @@ int init(char* abspath_conf_file, const char* delim)
     char* prev_p = NULL;
 
     int err;
-    Config* config = get_config("new", &err);
+    Config* config = get_new_config(&err);
     if (0 != err) {
+        free(next_p);
         fprintf(stderr, "\nNumber of sessions exceeded: %s\n", strerror(errno));
         return EXIT_FAILURE;
     }
@@ -138,17 +156,16 @@ static size_t callback(void* in, size_t size, size_t num, char* out)
     memcpy(&(bufS_p->data[bufS_p->size]), in, totalBytes);
     bufS_p->size += totalBytes;
     bufS_p->data[bufS_p->size] = 0;
-
     return totalBytes;
 }
 
-int send_request(const char *url, char *rsp)
+int send_request(const char *url, void *rsp)
 {
     CURL* curl = curl_easy_init();
     CURLcode res;
 
     struct Buffer bufS;
-    bufS.data = malloc(1);
+    bufS.data = malloc(32);
     bufS.size = 0;
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -165,15 +182,14 @@ int send_request(const char *url, char *rsp)
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &res);
     curl_easy_cleanup(curl);
 
-    if (CURLE_OK != res)
+    if (200 != res)
         fprintf(stderr, "\nRequest %s failed with error code: %d", url, res);
 
 #ifdef DEBUG
     printf("%s", bufS.data);
 #endif
-
     if (NULL != rsp)
-        strncpy(rsp, bufS.data, sizeof(&rsp));
+        memccpy(rsp, bufS.data, '\n', bufS.size);
 
     free(bufS.data);
 
@@ -183,7 +199,7 @@ int send_request(const char *url, char *rsp)
 void login(char* session)
 {
     int err;
-    char url[300];
+    char url[MAX_URL_SIZE];
     set_config(session, &err);
 
     if (0 != err) {
@@ -205,18 +221,18 @@ void login(char* session)
         strcat(url, "&format=sid");
         strtok(url, "\n");
 
-        char* rsp = malloc(sizeof(char) * SID_SIZE);
+        void* rsp = malloc(RSP_SIZE);
         send_request(url, rsp);
 
 #ifdef DEBUG
-        rsp = "sid: abc123zxy987__";
+        fprintf(stdout, "\nRSP: %s\n", (char*)rsp);
 #endif
-        char* sid = strstr(rsp, "sid");
-        static char* save_p;
+        char* sid = strstr((char*)rsp, "sid");
+
+        char* save_p;
         if (NULL != sid) {
-            sid = strtok_r(sid, ": ", &save_p);
-            sid = strtok_r(NULL, " ", &save_p);
-            strncpy(config->sid, sid, sizeof(config->sid));
+            sid = strtok_r(sid, "}", &save_p);
+            strncpy(config->sid, sid+5, SID_SIZE * sizeof(char));
         }
         free(rsp);
     }
@@ -225,7 +241,7 @@ void login(char* session)
 void logoff(char* session)
 {
     int err;
-    char url[50];
+    char url[MAX_URL_SIZE];
     Config* config = get_config(session, &err);
     if (0 == err) {
         strcpy(url, config->server_url);
@@ -234,32 +250,44 @@ void logoff(char* session)
         strtok(url, "\n");
         send_request(url, NULL);
     }
-    memset(config->sid, 0, sizeof config->sid);
-    memset(config->session, 0, sizeof config->session);
+    memset(config->sid, 0, sizeof(config->sid));
+    memset(config->session, 0, sizeof(config->session));
 }
 
 void clear_all_conf() {
-    memset(config_arr, 0, sizeof config_arr);
+    memset(config_arr, 0, sizeof(config_arr));
 }
 
-int request(char* session, char* url, char* rsp)
+int request(char* session, char* url, void* rsp)
 {
     int err;
+    char total_url[MAX_URL_SIZE];
+
     Config* config = get_config(session, &err);
     if (0 != err || 0 == strlen(config->sid)) {
         fprintf(stderr, "\nSession lost: %d\n", err);
         return EXIT_FAILURE;
     }
-    strcat(url, config->sid);
-    return send_request(url, rsp);
+    strcat(total_url, config->server_url);
+    strcat(total_url, url);
+
+    char* sid_request = strstr(url, "sid");
+    if (NULL != sid_request) {
+        strcat(url, config->sid);
+    }
+    int res = send_request(total_url, rsp);
+    if (res != 200) {
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
 
-int make(char* session, char* url, char* rsp)
+int make(char* session, char* url, void* rsp)
 {
     login(session);
 
     int res = request(session, url, rsp);
-    if (EXIT_FAILURE != res) {
+    if (EXIT_SUCCESS != res) {
         fprintf(stderr, "\nRequest failed: %s\n", strerror(errno));
         return res;
     }
@@ -269,15 +297,17 @@ int make(char* session, char* url, char* rsp)
 }
 
 int test_connection(char* session) {
-    int err;
+    int err = 0;
     login(session);
     Config* config = get_config(session, &err);
-    fprintf(stdout, "%s\t", config->username);
-    fprintf(stdout, "%s\n", config->session);
+    if (0 != err )
+        return err;
 
     logoff(session);
     config = get_config(session, &err);
-    fprintf(stdout, "%s\t", config->username);
-    fprintf(stdout, "%s\n", config->session);
+    if (config != NULL)
+    {
+        fprintf(stderr, "\nSession was still open: %s\n", strerror(errno));
+    }
     return err;
 }
