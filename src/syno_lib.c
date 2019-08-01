@@ -372,49 +372,34 @@ size_t callback(void* in, size_t size, size_t num, char* out)
 Config* get_new_config()
 {
     Config *config = config_arr;
-    bool found = false;
 
     for (int i = 0; i < NUM_SESSIONS; ++i, ++config)
     {
         if (0 == strlen(config->username)) {
-            found = true;
-            break;
+            return config;
         }
     }
 
-    if (!found) {
-        return NULL;
-    }
-
-    return config;
+    return NULL;
 }
 
 /// \details Searches for ongoing sessions and returns corresponding configuration.
 /// \param session Key used to match the searches.
 /// \param err_code Pointer to error code.
 /// \return Pointer to existing struct ConfigurationInfo instance if available, otherwise NULL.
-Config* get_config(char* session, int *err_code)
-{
+Config* get_config(char* session, int *err_code) {
     Config *config = config_arr;
-    bool found = false;
     *err_code = CONFIG_NOT_AVAILABLE;
 
-    for (int i = 0; i < NUM_SESSIONS; ++i, ++config)
-    {
+    for (int i = 0; i < NUM_SESSIONS; ++i, ++config) {
         if (0 == strcmp(config->session, session)) {
-            found = true;
             *err_code = CONFIG_OK;
-            break;
+            return config;
         }
     }
 
-    if (!found) {
-        return NULL;
-    }
-
-    return config;
+    return NULL;
 }
-
 /// \details Save current session
 /// \param session Key used to save the session
 /// \param err_code Pointer to error code

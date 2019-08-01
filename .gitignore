@@ -1,0 +1,9 @@
+*.cbp
+*.so
+.idea
+CMakeCache*
+CMakeFiles*
+cmake_install*
+Makefile*
+CTest*
+test/test_app
