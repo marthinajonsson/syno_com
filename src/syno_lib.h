@@ -7,16 +7,13 @@
 #define CONFIG_NOT_INITIALIZED 3
 
 #define HTML_REQUEST_OK 200
+#define RSP_NUM_BYTES (1024 * sizeof(char))
 
 int init(char* abspath_conf_file, const char* delim);
 int make(char* session, char* url, void* rsp);
 void clear_all_conf();
 
 int test_connection(char* session);
-
-
-// TODO Fix thread safety
-
 
 
 

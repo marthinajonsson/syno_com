@@ -11,7 +11,7 @@
 #define SID_SIZE 30
 #define LOGIN_SIZE 20
 #define MAX_URL_SIZE 256
-#define RSP_SIZE 1024
+
 
 typedef struct ConfigurationInfo {
     char username[LOGIN_SIZE];
@@ -35,7 +35,7 @@ Config* get_config(char* session, int *err_code);
 void set_config(char* session, int *err_code);
 
 // Communication utilities
-static size_t callback(void* in, size_t size, size_t num, char* out);
+size_t callback(void* in, size_t size, size_t num, char* out);
 int send_request(const char *url, void *rsp);
 
 // Called by make()
@@ -124,12 +124,13 @@ int make(char* session, char* request_url, void* rsp)
 {
     int res = login(session);
 
-    if (HTML_REQUEST_OK != res) {
+    if (EXIT_SUCCESS != res) {
         fprintf(stderr, "\nLogin failed for session: %s\n", session);
         return res;
     }
 
     res = request(session, request_url, rsp);
+
     if (EXIT_SUCCESS != res) {
         fprintf(stderr, "\nRequest failed: %s\n", strerror(errno));
     }
@@ -139,11 +140,11 @@ int make(char* session, char* request_url, void* rsp)
 }
 
 int test_connection(char* session) {
-    int err = 0;
+    int err = -1;
 
     err = login(session);
 
-    if (HTML_REQUEST_OK != err) {
+    if (EXIT_SUCCESS != err) {
         fprintf(stderr, "\nLogin failed for session: %s\n", session);
         return err;
     }
@@ -174,8 +175,7 @@ int test_connection(char* session) {
 /// \param session Key used to identify session.
 int login(char* session)
 {
-    int err;
-    int html_err = 0;
+    int err = -1;
     char url[MAX_URL_SIZE] = "";
     set_config(session, &err);
 
@@ -198,11 +198,11 @@ int login(char* session)
         strcat(url, "&format=sid");
         strtok(url, "\n");
 
-        void* rsp = malloc(RSP_SIZE);
+        void* rsp = malloc(RSP_NUM_BYTES);
         if (NULL == rsp) {
             fprintf(stderr, "Failed to allocate memory for response\n");
         }
-        html_err = send_request(url, rsp);
+        err = send_request(url, rsp);
 
 #ifdef DEBUG
         fprintf(stdout, "\nRSP: %s\n", (char*)rsp);
@@ -215,32 +215,33 @@ int login(char* session)
             strncpy(config->sid, sid+5, SID_SIZE * sizeof(char));
         }
         sid = NULL;
-        save_p = NULL;
+        save_p= NULL;
         free(rsp);
     }
-    return html_err;
+    return err == HTML_REQUEST_OK ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /// \details Logoff from session.
 /// \param session Key used to clear session.
 void logoff(char* session)
 {
-    int err;
+    int err = -1;
     char url[MAX_URL_SIZE] = "";
     Config* config = get_config(session, &err);
-    if (CONFIG_OK == err) {
+    if (CONFIG_OK != err) {
+        fprintf(stderr, "\nConfiguration not available: %d\n", err);
+    }
+    else {
         strcpy(url, config->server_url);
         strcat(url, "/webapi/auth.cgi?api=SYNO.API.Auth&version=1&method=logout&session=");
         strcat(url, config->session);
         strtok(url, "\n");
-        send_request(url, NULL);
+        err = send_request(url, NULL);
+        if (HTML_REQUEST_OK == err) {
+            memset(config->sid, 0, sizeof(config->sid));
+            memset(config->session, 0, sizeof(config->session));
+        }
     }
-    else {
-        fprintf(stderr, "\nConfiguration not available: %d\n", err);
-    }
-
-    memset(config->sid, 0, sizeof(config->sid));
-    memset(config->session, 0, sizeof(config->session));
 }
 
 /// \details Compiles and sends request.
@@ -250,7 +251,7 @@ void logoff(char* session)
 /// \return SUCCESS 0 or FAILURE 1.
 int request(char* session, char* url, void* rsp)
 {
-    int err;
+    int err = -1;
     char total_url[MAX_URL_SIZE] = "";
 
     Config* config = get_config(session, &err);
@@ -266,6 +267,7 @@ int request(char* session, char* url, void* rsp)
         strcat(url, config->sid);
     }
     int res = send_request(total_url, rsp);
+
     if (res != HTML_REQUEST_OK) {
         fprintf(stderr, "HTML request failed: %s\n", strerror(errno));
         return EXIT_FAILURE;
@@ -303,9 +305,8 @@ int send_request(const char *url, void *rsp)
     curl_easy_setopt(curl, CURLOPT_HEADER, 0);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
-
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&bufS);
 
     curl_easy_perform(curl);
@@ -314,12 +315,21 @@ int send_request(const char *url, void *rsp)
 
     if (NULL != rsp) {
 
-        if (RSP_SIZE < bufS.size) {
-            fprintf(stdout, "Response too large. Risk of data loss.\n");
-            memccpy(rsp, bufS.data, '\0', RSP_SIZE);
+        if (RSP_NUM_BYTES < bufS.size) {
+            fprintf(stderr, "Response too large. Risk of data loss.\n");
+            FILE *file_p;
+            file_p = fopen("/tmp/syno_output.txt","w+");
+            if (NULL != file_p) {
+                fwrite(bufS.data, 1, bufS.size, file_p);
+                fclose(file_p);
+                fprintf(stdout, "Full response written to /tmp/syno_output.txt");
+            }
+            memset(rsp, '\0', RSP_NUM_BYTES);
         }
         else {
-            memccpy(rsp, bufS.data, '\0', bufS.size);
+            char *pdest;
+            pdest = memccpy(rsp, bufS.data, '\0', bufS.size);
+            if (pdest != NULL ) *pdest = '\0';
         }
     }
     else {
